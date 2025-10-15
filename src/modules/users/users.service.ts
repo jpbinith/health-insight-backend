@@ -1,7 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { getDatabase } from '../../config/mongodb.config';
 import { CreateUserDto } from './dto/create-user.dto';
-import { Collection } from 'mongodb';
+import { Collection, ObjectId } from 'mongodb';
 import { promisify } from 'util';
 import {
   randomBytes,
@@ -67,6 +67,23 @@ export class UsersService {
     return (
       hashBuffer.length === derivedKey.length &&
       timingSafeEqual(hashBuffer, derivedKey)
+    );
+  }
+
+  async findById(userId: ObjectId): Promise<UserDocument | null> {
+    return this.collection.findOne({ _id: userId });
+  }
+
+  async updatePassword(userId: ObjectId, newPassword: string): Promise<void> {
+    const passwordHash = await this.hashPassword(newPassword);
+    await this.collection.updateOne(
+      { _id: userId },
+      {
+        $set: {
+          passwordHash,
+          updatedAt: new Date(),
+        },
+      },
     );
   }
 
