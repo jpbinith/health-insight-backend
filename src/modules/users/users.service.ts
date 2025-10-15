@@ -3,7 +3,11 @@ import { getDatabase } from '../../config/mongodb.config';
 import { CreateUserDto } from './dto/create-user.dto';
 import { Collection } from 'mongodb';
 import { promisify } from 'util';
-import { randomBytes, scrypt as _scrypt } from 'node:crypto';
+import {
+  randomBytes,
+  scrypt as _scrypt,
+  timingSafeEqual,
+} from 'node:crypto';
 import { UserDocument } from './schemas/user.schema';
 
 const scrypt = promisify(_scrypt);
@@ -41,6 +45,29 @@ export class UsersService {
       email,
       createdAt: now.toISOString(),
     };
+  }
+
+  async findByEmail(email: string): Promise<UserDocument | null> {
+    return this.collection.findOne({ email });
+  }
+
+  async verifyPassword(
+    password: string,
+    storedHash: string,
+  ): Promise<boolean> {
+    const [salt, hash] = storedHash.split(':');
+
+    if (!salt || !hash) {
+      throw new Error('Stored password hash is malformed.');
+    }
+
+    const derivedKey = (await scrypt(password, salt, 32)) as Buffer;
+    const hashBuffer = Buffer.from(hash, 'hex');
+
+    return (
+      hashBuffer.length === derivedKey.length &&
+      timingSafeEqual(hashBuffer, derivedKey)
+    );
   }
 
   private normalizeCreateUserPayload(dto: CreateUserDto) {
