@@ -7,9 +7,10 @@ import {
 } from './config/mongodb.config';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { IrisRecordsModule } from './modules/iris-records/iris-records.module';
 
 @Module({
-  imports: [UsersModule, AuthModule],
+  imports: [UsersModule, AuthModule, IrisRecordsModule],
   controllers: [AppController],
   providers: [AppService],
 })
