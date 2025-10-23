@@ -9,10 +9,16 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import sharp from 'sharp';
-import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { getS3BucketName, getS3Client } from '../../config/s3.config';
 import type { UploadedImageFile } from '../iris-records/types/uploaded-image-file';
+import {
+  SkinDisease,
+  SkinDiseaseDocument,
+} from './schemas/skin-disease.schema';
 
 interface AnalysisScore {
   label: string;
@@ -40,7 +46,14 @@ export class AnalyseService {
   private imageWidth = 256;
   private imageHeight = 256;
 
-  async analyse(file: UploadedImageFile | undefined) {
+  constructor(
+    @InjectModel(SkinDisease.name)
+    private readonly skinDiseaseModel: Model<SkinDiseaseDocument>,
+  ) {}
+
+  async analyse(
+    file: UploadedImageFile | undefined,
+  ): Promise<SkinConditionResult[]> {
     if (!file) {
       throw new BadRequestException('Image file is required.');
     }
@@ -254,122 +267,123 @@ export class AnalyseService {
   private async buildSkinConditionResults(
     predictions: AnalysisScore[],
   ): Promise<SkinConditionResult[]> {
-    const placeholderKey = 'skin/tinea/tinea.png';
-    const placeholderUrl = await this.getSignedImageUrl(placeholderKey);
+    const conditionIds = predictions.map((prediction) =>
+      prediction.label.toLowerCase(),
+    );
 
-    const defaultConditions: Record<string, SkinConditionResult> = {
-      eczema: {
-        id: 'eczema',
-        title: 'Eczema (Atopic Dermatitis)',
-        label: 'Top Match',
-        confidence: 0,
-        description:
-          'A chronic inflammatory condition that makes skin red, itchy, and dry. Flares can be triggered by stress, allergens, or irritants and often require ongoing management.',
-        symptoms: [
-          'Dry, cracked, or scaly patches of skin',
-          'Intense itching, often worse at night',
-          'Red to brownish-gray patches on hands, feet, neck, and upper chest',
-          'Small, raised bumps that may leak fluid when scratched',
-        ],
-        galleryImages: [
-          { src: placeholderUrl, alt: 'Eczema affecting cheek' },
-          { src: placeholderUrl, alt: 'Eczema flare on wrist' },
-          { src: placeholderUrl, alt: 'Eczema on elbow crease' },
-          { src: placeholderUrl, alt: 'Eczema on neck area' },
-        ],
-        isTopMatch: true,
-      },
-      psoriasis: {
-        id: 'psoriasis',
-        title: 'Psoriasis',
-        label: 'Prediction #2',
-        confidence: 0,
-        description:
-          'An autoimmune condition that accelerates skin cell turnover, producing thick, silvery scales and dry, itchy plaques. It can flare cyclically with triggers like stress or infections.',
-        symptoms: [
-          'Raised plaques covered with silvery scales',
-          'Dry, cracked skin that may bleed',
-          'Itching or soreness around plaques',
-          'Thickened or pitted fingernails',
-        ],
-        galleryImages: [
-          { src: placeholderUrl, alt: 'Psoriasis plaque on elbow' },
-          { src: placeholderUrl, alt: 'Psoriasis on knees' },
-          { src: placeholderUrl, alt: 'Psoriasis affecting scalp' },
-        ],
-      },
-      rosacea: {
-        id: 'rosacea',
-        title: 'Rosacea',
-        label: 'Prediction #3',
-        confidence: 0,
-        description:
-          'A chronic inflammatory facial skin disorder characterized by flushing, visible blood vessels, and sometimes acne-like bumps. Triggers include heat, spicy foods, alcohol, and stress.',
-        symptoms: [
-          'Persistent redness across the central face',
-          'Small, pus-filled bumps resembling acne',
-          'Visible facial blood vessels (telangiectasia)',
-          'Burning or stinging sensations on the face',
-        ],
-        galleryImages: [
-          { src: placeholderUrl, alt: 'Rosacea redness on cheeks' },
-          { src: placeholderUrl, alt: 'Rosacea with visible vessels' },
-          { src: placeholderUrl, alt: 'Rosacea flare around nose' },
-        ],
-      },
-    };
+    const diseases = (await this.skinDiseaseModel
+      .find({ _id: { $in: conditionIds } })
+      .lean()
+      .exec()) as Array<SkinDisease & { _id: string }>;
+
+    const diseaseMap = new Map<string, SkinDisease & { _id: string }>();
+    for (const disease of diseases) {
+      diseaseMap.set(disease._id.toLowerCase(), disease);
+    }
 
     const rankingLabels = ['Top Match', 'Prediction #2', 'Prediction #3'];
 
-    return predictions.map((prediction, index) => {
-      const conditionKey = this.mapLabelToConditionId(prediction.label);
-      const baseCondition =
-        defaultConditions[conditionKey] ??
-        {
-          id: conditionKey,
-          title: prediction.label.replace(/_/g, ' '),
-          label: rankingLabels[index] ?? `Prediction #${index + 1}`,
-          confidence: 0,
-          description:
-            'Further information about this condition is not yet available. Consult a healthcare professional for a detailed assessment.',
-          symptoms: [
-            'Consult a dermatologist for personalized evaluation',
-            'Monitor for progression or changes over time',
-          ],
-          galleryImages: [
-            {
-              src: placeholderUrl,
-              alt: `${prediction.label} representative example`,
-            },
-          ],
-        };
+    return Promise.all(
+      predictions.map(async (prediction, index) => {
+        const conditionKey = prediction.label.toLowerCase();
+        const diseaseRecord = diseaseMap.get(conditionKey);
 
-      const confidencePercent = Math.round((prediction.probability ?? 0) * 100);
-      return {
-        ...baseCondition,
-        label: rankingLabels[index] ?? baseCondition.label,
-        confidence: confidencePercent,
-        isTopMatch: index === 0,
-      };
-    });
+        const confidencePercent = Math.round(
+          (prediction.probability ?? 0) * 100,
+        );
+
+        const galleryImageUrls = await this.resolveGalleryImages(conditionKey);
+
+        const description =
+          diseaseRecord?.description ??
+          'Further information about this condition is not yet available. Consult a healthcare professional for a detailed assessment.';
+
+        const symptoms =
+          diseaseRecord && Array.isArray(diseaseRecord.symptoms) && diseaseRecord.symptoms.length > 0
+            ? diseaseRecord.symptoms
+            : [
+                'Consult a dermatologist for personalized evaluation',
+                'Monitor for progression or changes over time',
+              ];
+
+        const title =
+          diseaseRecord?.title ?? prediction.label.replace(/_/g, ' ');
+
+        return {
+          id: diseaseRecord?._id ?? conditionKey,
+          title,
+          label: rankingLabels[index] ?? `Prediction #${index + 1}`,
+          confidence: confidencePercent,
+          description,
+          symptoms,
+          galleryImages: galleryImageUrls.map((src, imageIndex) => ({
+            src,
+            alt: `${title} reference ${imageIndex + 1}`,
+          })),
+          isTopMatch: index === 0,
+        } satisfies SkinConditionResult;
+      }),
+    );
   }
 
-  private mapLabelToConditionId(label: string): string {
-    const normalized = label.toLowerCase();
-    if (normalized.includes('eczema')) {
-      return 'eczema';
-    }
-    if (normalized.includes('psoriasis')) {
-      return 'psoriasis';
-    }
-    if (normalized.includes('rosacea')) {
-      return 'rosacea';
-    }
-    return normalized.replace(/[^a-z0-9]/g, '-');
+  private async resolveGalleryImages(conditionKey: string): Promise<string[]> {
+    const imageKeys = await this.listS3ImageKeys(conditionKey);
+
+    return Promise.all(
+      imageKeys.map((key, index) =>
+        this.getSignedImageUrl(key).catch((error) => {
+          this.logger.warn(
+            `Unable to generate signed URL for ${key} (image #${index})`,
+            error,
+          );
+          return '';
+        }),
+      ),
+    ).then((urls) => urls.filter((url) => url));
+  }
+
+  private async listS3ImageKeys(conditionKey: string): Promise<string[]> {
+    const client = getS3Client();
+    const bucket = getS3BucketName();
+    const prefix = `skin/${conditionKey}/`;
+    const keys: string[] = [];
+
+    let continuationToken: string | undefined;
+    do {
+      const command = new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix,
+        ContinuationToken: continuationToken,
+      });
+
+      try {
+        const response = await client.send(command);
+        response.Contents?.forEach((item) => {
+          const key = item.Key;
+          if (key && !key.endsWith('/')) {
+            keys.push(key);
+          }
+        });
+        continuationToken = response.IsTruncated
+          ? response.NextContinuationToken
+          : undefined;
+      } catch (error) {
+        this.logger.error(
+          `Failed to list images under ${prefix}`,
+          error instanceof Error ? error : undefined,
+        );
+        return [];
+      }
+    } while (continuationToken);
+
+    return keys;
   }
 
   private async getSignedImageUrl(key: string): Promise<string> {
     try {
+      if (!key) {
+        throw new Error('Image key is empty');
+      }
       const client = getS3Client();
       const bucket = getS3BucketName();
       const command = new GetObjectCommand({ Bucket: bucket, Key: key });
