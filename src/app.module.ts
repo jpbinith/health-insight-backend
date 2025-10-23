@@ -7,6 +7,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { IrisRecordsModule } from './modules/iris-records/iris-records.module';
 import { createMongooseConfig } from './config/mongoose.config';
 import { AnalyseModule } from './modules/analyse/analyse.module';
+import { DiseaseHistoryModule } from './modules/disease-history/disease-history.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { AnalyseModule } from './modules/analyse/analyse.module';
     AuthModule,
     IrisRecordsModule,
     AnalyseModule,
+    DiseaseHistoryModule,
   ],
   controllers: [AppController],
   providers: [AppService],
