@@ -4,13 +4,16 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
 import { randomUUID } from 'node:crypto';
 import { extname } from 'node:path';
 import { getS3BucketName, getS3Client } from '../../config/s3.config';
-import { getDatabase } from '../../config/mongodb.config';
 import { CreateIrisRecordDto } from './dto/create-iris-record.dto';
-import { Collection } from 'mongodb';
-import { IrisRecordDocument } from './schemas/iris-record.schema';
+import {
+  IrisRecord,
+  IrisRecordDocument,
+} from './schemas/iris-record.schema';
 import type { UploadedImageFile } from './types/uploaded-image-file';
 
 @Injectable()
@@ -18,9 +21,10 @@ export class IrisRecordsService {
   private readonly s3 = getS3Client();
   private readonly bucket = getS3BucketName();
 
-  private get collection(): Collection<IrisRecordDocument> {
-    return getDatabase().collection<IrisRecordDocument>('iris_records');
-  }
+  constructor(
+    @InjectModel(IrisRecord.name)
+    private readonly irisRecordModel: Model<IrisRecordDocument>,
+  ) {}
 
   async create(
     dto: CreateIrisRecordDto,
@@ -40,22 +44,29 @@ export class IrisRecordsService {
 
     await this.uploadToS3(objectKey, file);
 
-    const now = new Date();
     try {
-      const { insertedId } = await this.collection.insertOne({
+      const record = await this.irisRecordModel.create({
         imageKey: objectKey,
         healthIssues,
         note: dto.note,
-        createdAt: now,
-        updatedAt: now,
       });
 
+      const createdAt =
+        record.createdAt instanceof Date
+          ? record.createdAt.toISOString()
+          : new Date().toISOString();
+
+      const id =
+        record._id instanceof Types.ObjectId
+          ? record._id.toHexString()
+          : String(record._id);
+
       return {
-        id: insertedId.toHexString(),
+        id,
         imageKey: objectKey,
         healthIssues,
         note: dto.note,
-        createdAt: now.toISOString(),
+        createdAt,
       };
     } catch (error) {
       await this.cleanupUploadedObject(objectKey);

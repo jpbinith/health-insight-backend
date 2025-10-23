@@ -5,6 +5,7 @@ import {
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
 import { sign } from 'jsonwebtoken';
 import { UsersService } from '../users/users.service';
 import { LoginDto } from './dto/login.dto';
@@ -12,23 +13,24 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UserDocument } from '../users/schemas/user.schema';
 import { EmailService } from '../email/email.service';
-import { getDatabase } from '../../config/mongodb.config';
-import { Collection } from 'mongodb';
-import { PasswordResetTokenDocument } from './schemas/password-reset-token.schema';
+import {
+  PasswordResetToken,
+  PasswordResetTokenDocument,
+} from './schemas/password-reset-token.schema';
 import { createHash, randomBytes } from 'node:crypto';
+import { Model, Types } from 'mongoose';
 
 @Injectable()
 export class AuthService {
   private readonly tokenExpiresInSeconds = 60 * 60; // 1 hour
   private readonly resetTokenTtlMs = 15 * 60 * 1000; // 15 minutes
   private readonly logger = new Logger(AuthService.name);
-  private passwordResetCollection: Collection<PasswordResetTokenDocument> | null =
-    null;
-  private passwordResetIndexesEnsured = false;
 
   constructor(
     private readonly usersService: UsersService,
     private readonly emailService: EmailService,
+    @InjectModel(PasswordResetToken.name)
+    private readonly passwordResetTokenModel: Model<PasswordResetTokenDocument>,
   ) {}
 
   async login(loginDto: LoginDto) {
@@ -67,20 +69,16 @@ export class AuthService {
       return;
     }
 
-    await this.ensurePasswordResetIndexes();
-
     const token = randomBytes(32).toString('hex');
     const tokenHash = this.hashToken(token);
     const expiresAt = new Date(Date.now() + this.resetTokenTtlMs);
-    const collection = this.getPasswordResetCollection();
+    const userId = user._id as Types.ObjectId;
 
-    await collection.deleteMany({ userId: user._id });
-    await collection.insertOne({
-      userId: user._id,
+    await this.passwordResetTokenModel.deleteMany({ userId });
+    await this.passwordResetTokenModel.create({
+      userId,
       tokenHash,
       expiresAt,
-      createdAt: new Date(),
-      updatedAt: new Date(),
     });
 
     const resetUrl = this.buildResetUrl(token);
@@ -96,15 +94,18 @@ export class AuthService {
 
   async resetPassword(resetPasswordDto: ResetPasswordDto): Promise<void> {
     const tokenHash = this.hashToken(resetPasswordDto.token);
-    const collection = this.getPasswordResetCollection();
-    const tokenDocument = await collection.findOne({ tokenHash });
+    const tokenDocument = await this.passwordResetTokenModel
+      .findOne({ tokenHash })
+      .exec();
 
     if (!tokenDocument) {
       throw new BadRequestException('Invalid or expired password reset token.');
     }
 
     if (tokenDocument.expiresAt.getTime() < Date.now()) {
-      await collection.deleteMany({ userId: tokenDocument.userId });
+      await this.passwordResetTokenModel.deleteMany({
+        userId: tokenDocument.userId,
+      });
       throw new BadRequestException(
         'Invalid or expired password reset token.',
       );
@@ -125,7 +126,9 @@ export class AuthService {
       tokenDocument.userId,
       resetPasswordDto.password,
     );
-    await collection.deleteMany({ userId: tokenDocument.userId });
+    await this.passwordResetTokenModel.deleteMany({
+      userId: tokenDocument.userId,
+    });
 
     this.logger.log(`Password reset completed for user ${user.email}`);
   }
@@ -139,7 +142,7 @@ export class AuthService {
       );
     }
 
-    const userId = user._id?.toHexString();
+    const userId = user._id as Types.ObjectId | undefined;
 
     if (!userId) {
       throw new InternalServerErrorException(
@@ -148,7 +151,7 @@ export class AuthService {
     }
 
     const payload = {
-      sub: userId,
+      sub: userId.toHexString(),
       email: user.email,
       fullName: user.fullName,
     };
@@ -157,7 +160,7 @@ export class AuthService {
   }
 
   private sanitizeUser(user: UserDocument) {
-    const userId = user._id?.toHexString();
+    const userId = user._id as Types.ObjectId | undefined;
 
     if (!userId) {
       throw new InternalServerErrorException(
@@ -166,33 +169,10 @@ export class AuthService {
     }
 
     return {
-      id: userId,
+      id: userId.toHexString(),
       fullName: user.fullName,
       email: user.email,
     };
-  }
-
-  private getPasswordResetCollection(): Collection<PasswordResetTokenDocument> {
-    if (!this.passwordResetCollection) {
-      const db = getDatabase();
-      this.passwordResetCollection = db.collection<PasswordResetTokenDocument>(
-        'password_reset_tokens',
-      );
-    }
-
-    return this.passwordResetCollection;
-  }
-
-  private async ensurePasswordResetIndexes(): Promise<void> {
-    if (this.passwordResetIndexesEnsured) {
-      return;
-    }
-
-    const collection = this.getPasswordResetCollection();
-    await collection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-    await collection.createIndex({ userId: 1 });
-    await collection.createIndex({ tokenHash: 1 }, { unique: true });
-    this.passwordResetIndexesEnsured = true;
   }
 
   private hashToken(token: string): string {

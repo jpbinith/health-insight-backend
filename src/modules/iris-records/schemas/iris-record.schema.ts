@@ -1,10 +1,21 @@
-import { ObjectId } from 'mongodb';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { HydratedDocument } from 'mongoose';
 
-export interface IrisRecordDocument {
-  _id?: ObjectId;
-  imageKey: string;
-  healthIssues: string[];
+@Schema({ timestamps: true })
+export class IrisRecord {
+  @Prop({ required: true })
+  imageKey!: string;
+
+  @Prop({ type: [String], required: true })
+  healthIssues!: string[];
+
+  @Prop()
   note?: string;
-  createdAt: Date;
-  updatedAt: Date;
+
+  createdAt?: Date;
+  updatedAt?: Date;
 }
+
+export type IrisRecordDocument = HydratedDocument<IrisRecord>;
+
+export const IrisRecordSchema = SchemaFactory.createForClass(IrisRecord);
