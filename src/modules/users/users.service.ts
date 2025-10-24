@@ -1,54 +1,61 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import { getDatabase } from '../../config/mongodb.config';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
 import { CreateUserDto } from './dto/create-user.dto';
-import { Collection, ObjectId } from 'mongodb';
 import { promisify } from 'util';
 import {
   randomBytes,
   scrypt as _scrypt,
   timingSafeEqual,
 } from 'node:crypto';
-import { UserDocument } from './schemas/user.schema';
+import { User, UserDocument } from './schemas/user.schema';
 
 const scrypt = promisify(_scrypt);
 
 @Injectable()
 export class UsersService {
-  private get collection(): Collection<UserDocument> {
-    const db = getDatabase();
-    return db.collection<UserDocument>('users');
-  }
+  constructor(
+    @InjectModel(User.name)
+    private readonly userModel: Model<UserDocument>,
+  ) {}
 
   async create(createUserDto: CreateUserDto) {
     const { fullName, email, password } =
       this.normalizeCreateUserPayload(createUserDto);
 
-    const existingUser = await this.collection.findOne({ email });
+    const existingUser = await this.userModel.findOne({ email }).lean();
     if (existingUser) {
       throw new ConflictException('A user with this email already exists.');
     }
 
     const passwordHash = await this.hashPassword(password);
-    const now = new Date();
 
-    const { insertedId } = await this.collection.insertOne({
+    const user = await this.userModel.create({
       fullName,
       email,
       passwordHash,
-      createdAt: now,
-      updatedAt: now,
     });
 
+    const createdAt =
+      user.createdAt instanceof Date
+        ? user.createdAt.toISOString()
+        : new Date().toISOString();
+
+    const id =
+      user._id instanceof Types.ObjectId
+        ? user._id.toHexString()
+        : String(user._id);
+
     return {
-      id: insertedId.toHexString(),
+      id,
       fullName,
       email,
-      createdAt: now.toISOString(),
+      createdAt,
     };
   }
 
   async findByEmail(email: string): Promise<UserDocument | null> {
-    return this.collection.findOne({ email });
+    return this.userModel.findOne({ email }).exec();
   }
 
   async verifyPassword(
@@ -70,21 +77,18 @@ export class UsersService {
     );
   }
 
-  async findById(userId: ObjectId): Promise<UserDocument | null> {
-    return this.collection.findOne({ _id: userId });
+  async findById(userId: Types.ObjectId | string): Promise<UserDocument | null> {
+    return this.userModel.findById(userId).exec();
   }
 
-  async updatePassword(userId: ObjectId, newPassword: string): Promise<void> {
+  async updatePassword(
+    userId: Types.ObjectId | string,
+    newPassword: string,
+  ): Promise<void> {
     const passwordHash = await this.hashPassword(newPassword);
-    await this.collection.updateOne(
-      { _id: userId },
-      {
-        $set: {
-          passwordHash,
-          updatedAt: new Date(),
-        },
-      },
-    );
+    await this.userModel.findByIdAndUpdate(userId, {
+      passwordHash,
+    });
   }
 
   private normalizeCreateUserPayload(dto: CreateUserDto) {

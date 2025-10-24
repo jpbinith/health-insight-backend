@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 
@@ -17,6 +17,9 @@ async function bootstrap() {
       transformOptions: { enableImplicitConversion: true },
     }),
   );
-  await app.listen(process.env.PORT ?? 3000);
+  const port = Number(process.env.PORT ?? 3000);
+  await app.listen(port);
+  const logger = new Logger("APP");
+  logger.log(`Application is running on http://localhost:${port}`);
 }
 bootstrap();

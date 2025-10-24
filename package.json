@@ -21,10 +21,12 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.910.0",
+    "@aws-sdk/s3-request-presigner": "^3.914.0",
     "@azure/identity": "^4.13.0",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
+    "@nestjs/mongoose": "^11.0.3",
     "@nestjs/platform-express": "^11.0.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
@@ -32,8 +34,11 @@
     "isomorphic-fetch": "^3.0.0",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.20.0",
+    "mongoose": "^8.19.2",
+    "onnxruntime-node": "^1.23.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "sharp": "^0.34.4"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
