@@ -12,6 +12,7 @@ import { getS3BucketName, getS3Client } from '../../config/s3.config';
 import { DiseaseHistory, DiseaseHistoryDocument } from './schemas/disease-history.schema';
 import { CreateDiseaseHistoryDto } from './dto/create-disease-history.dto';
 import { QueryDiseaseHistoryDto } from './dto/query-disease-history.dto';
+import { AnalyseService } from '../analyse/analyse.service';
 import type { UploadedImageFile } from '../iris-records/types/uploaded-image-file';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -24,6 +25,7 @@ export class DiseaseHistoryService {
   constructor(
     @InjectModel(DiseaseHistory.name)
     private readonly diseaseHistoryModel: Model<DiseaseHistoryDocument>,
+    private readonly analyseService: AnalyseService,
   ) {}
 
   async create(
@@ -82,21 +84,38 @@ export class DiseaseHistoryService {
     const data = await Promise.all(
       items.map(async (item) => {
         const imageUrl = await this.generateSignedUrl(item.imageKey);
-        const diseaseUrls = await Promise.all(
-          item.diseases.map(async (disease) => ({
-            conditionId: disease.conditionId,
-            confidence: disease.confidence,
-            imageUrl,
-          })),
+
+        const sortedDiseases = [...item.diseases].sort(
+          (a, b) => b.confidence - a.confidence,
         );
+
+        const predictions = sortedDiseases.map((disease) => ({
+          label: disease.conditionId,
+          probability: (disease.confidence ?? 0) / 100,
+        }));
+
+        const detailedResults = await this.analyseService.buildSkinConditionResults(
+          predictions,
+        );
+
+        const results = detailedResults.map((result) => {
+          const match = item.diseases.find(
+            (disease) =>
+              disease.conditionId.toLowerCase() === result.id.toLowerCase(),
+          );
+          return {
+            ...result,
+            confidence: match?.confidence ?? result.confidence,
+          };
+        });
 
         return {
           historyId: item.historyId,
-          diseases: diseaseUrls,
           imageUrl,
           occurredAt: item.occurredAt,
           createdAt: item['createdAt'],
           updatedAt: item['updatedAt'],
+          results,
         };
       }),
     );

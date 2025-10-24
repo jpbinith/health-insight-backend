@@ -6,12 +6,14 @@ import {
   DiseaseHistory,
   DiseaseHistorySchema,
 } from './schemas/disease-history.schema';
+import { AnalyseModule } from '../analyse/analyse.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: DiseaseHistory.name, schema: DiseaseHistorySchema },
     ]),
+    AnalyseModule,
   ],
   controllers: [DiseaseHistoryController],
   providers: [DiseaseHistoryService],

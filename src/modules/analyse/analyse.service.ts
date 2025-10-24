@@ -264,7 +264,7 @@ export class AnalyseService {
 
     throw new Error(`Unable to locate model asset: ${filename}`);
   }
-  private async buildSkinConditionResults(
+  async buildSkinConditionResults(
     predictions: AnalysisScore[],
   ): Promise<SkinConditionResult[]> {
     const conditionIds = predictions.map((prediction) =>
@@ -395,5 +395,4 @@ export class AnalyseService {
       });
     }
   }
-
 }

@@ -16,5 +16,6 @@ import {
   ],
   controllers: [AnalyseController],
   providers: [AnalyseService],
+  exports: [AnalyseService],
 })
 export class AnalyseModule {}
