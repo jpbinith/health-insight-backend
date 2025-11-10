@@ -37,7 +37,7 @@ export class AuthService {
     const user = await this.usersService.findByEmail(loginDto.email);
 
     if (!user) {
-      throw new UnauthorizedException('Invalid credentials.');
+      throw new UnauthorizedException('Invalid Username or Password.');
     }
 
     const isPasswordValid = await this.usersService.verifyPassword(
@@ -46,7 +46,7 @@ export class AuthService {
     );
 
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials.');
+      throw new UnauthorizedException('Invalid Username or Password.');
     }
 
     const accessToken = this.createToken(user);
