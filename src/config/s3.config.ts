@@ -8,21 +8,15 @@ export const getS3Client = (): S3Client => {
   }
 
   const region = process.env.AWS_REGION;
-  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
 
-  if (!region || !accessKeyId || !secretAccessKey) {
+  if (!region) {
     throw new Error(
-      'AWS credentials are not fully configured. Check AWS_REGION, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY.',
+      'AWS credentials are not fully configured. Check AWS_REGION',
     );
   }
 
   client = new S3Client({
     region,
-    credentials: {
-      accessKeyId,
-      secretAccessKey,
-    },
   });
 
   return client;

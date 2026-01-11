@@ -3,18 +3,15 @@ import {
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
-import 'isomorphic-fetch';
-import { Client } from '@microsoft/microsoft-graph-client';
-import { ClientSecretCredential } from '@azure/identity';
+import nodemailer, { Transporter } from 'nodemailer';
 
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private readonly graphClient: Client;
+  private readonly transporter: Transporter;
   private readonly fromAddress: string;
   private readonly fromName: string;
   private readonly appName: string;
-  private readonly senderUserId: string;
 
   constructor() {
     this.fromAddress = (process.env.EMAIL_FROM_ADDRESS ?? '').trim();
@@ -25,44 +22,30 @@ export class EmailService {
       throw new Error('EMAIL_FROM_ADDRESS environment variable is not defined.');
     }
 
-    const tenantId = process.env.GRAPH_TENANT_ID;
-    const clientId = process.env.GRAPH_CLIENT_ID;
-    const clientSecret = process.env.GRAPH_CLIENT_SECRET;
-    this.senderUserId = (
-      process.env.GRAPH_SENDER_USER_ID ?? this.fromAddress
-    ).trim();
+    const smtpHost = (process.env.SMTP_HOST ?? '').trim();
+    const smtpPortValue = (process.env.SMTP_PORT ?? '').toString().trim();
+    const smtpUsername = (process.env.SMTP_USERNAME ?? '').trim();
+    const smtpPassword = process.env.SMTP_PASSWORD;
 
-    if (!tenantId || !clientId || !clientSecret) {
+    const smtpPort = Number(smtpPortValue);
+
+    if (!smtpHost || Number.isNaN(smtpPort) || smtpPort <= 0) {
       throw new Error(
-        'Microsoft Graph credentials are not fully configured. Check GRAPH_TENANT_ID, GRAPH_CLIENT_ID, and GRAPH_CLIENT_SECRET.',
+        'SMTP_HOST and a valid SMTP_PORT are required for the email service.',
       );
     }
 
-    if (!this.senderUserId) {
-      throw new Error(
-        'GRAPH_SENDER_USER_ID must be provided or default to EMAIL_FROM_ADDRESS.',
-      );
+    if (!smtpUsername || !smtpPassword) {
+      throw new Error('SMTP_USERNAME and SMTP_PASSWORD must be configured.');
     }
 
-    const credential = new ClientSecretCredential(
-      tenantId,
-      clientId,
-      clientSecret,
-    );
-
-    this.graphClient = Client.initWithMiddleware({
-      authProvider: {
-        getAccessToken: async () => {
-          const token = await credential.getToken(
-            'https://graph.microsoft.com/.default',
-          );
-
-          if (!token) {
-            throw new Error('Unable to acquire Microsoft Graph access token.');
-          }
-
-          return token.token;
-        },
+    this.transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465,
+      auth: {
+        user: smtpUsername,
+        pass: smtpPassword,
       },
     });
   }
@@ -81,42 +64,26 @@ export class EmailService {
       `<p><a href="${resetUrl}">${resetUrl}</a></p>` +
       `<p>If you did not request this, please ignore this email or contact support.</p>` +
       `<p>Thanks,<br/>${greeting}</p>`;
+    const textBody =
+      `Hi ${toName},\n\n` +
+      `We received a request to reset your ${this.appName} password. Use the link below to choose a new password:\n` +
+      `${resetUrl}\n\n` +
+      'If you did not request this, please ignore this email or contact support.\n\n' +
+      `Thanks,\n${greeting}`;
 
     try {
-      const message = {
+      await this.transporter.sendMail({
+        from: this.fromName
+          ? `"${this.fromName}" <${this.fromAddress}>`
+          : this.fromAddress,
+        to: recipientEmail,
         subject,
-        body: {
-          contentType: 'HTML',
-          content: htmlBody,
-        },
-        toRecipients: [
-          {
-            emailAddress: {
-              address: recipientEmail,
-              name: toName,
-            },
-          },
-        ],
-        replyTo: [
-          {
-            emailAddress: {
-              address: this.fromAddress,
-              name: this.fromName || undefined,
-            },
-          },
-        ],
-      };
-
-      const payload = {
-        message,
-        saveToSentItems: false,
-      };
-
-      const endpointUserId = encodeURIComponent(this.senderUserId);
-
-      await this.graphClient
-        .api(`/users/${endpointUserId}/sendMail`)
-        .post(payload);
+        html: htmlBody,
+        text: textBody,
+        replyTo: this.fromName
+          ? `"${this.fromName}" <${this.fromAddress}>`
+          : this.fromAddress,
+      });
     } catch (error) {
       this.logger.error(
         'Unable to send password reset email',
