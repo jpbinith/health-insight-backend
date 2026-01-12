@@ -39,7 +39,7 @@ export class IrisRecordsService {
     }
 
     const fileExtension = extname(file.originalname) || '';
-    const objectKey = `${randomUUID()}${fileExtension.toLowerCase()}`;
+    const objectKey = `eye/${randomUUID()}${fileExtension.toLowerCase()}`;
     const healthIssues = dto.healthIssues.map((issue) => issue.trim());
 
     await this.uploadToS3(objectKey, file);
