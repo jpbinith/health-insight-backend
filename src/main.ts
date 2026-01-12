@@ -6,7 +6,12 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.enableCors({
-    origin: ['http://eyeinsighthealth.com', 'https://eyeinsighthealth.com'],
+    origin: [
+      'http://eyeinsighthealth.com',
+      'https://eyeinsighthealth.com',
+      'http://www.eyeinsighthealth.com',
+      'https://www.eyeinsighthealth.com',
+    ],
     credentials: true,
   });
   app.useGlobalPipes(
