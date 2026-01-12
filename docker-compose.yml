@@ -4,9 +4,9 @@ services:
       context: ../health-insight-frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://eyeinsighthealth.com/api}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://eyeinsighthealth.com/api}
     environment:
-      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://eyeinsighthealth.com/api}
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://eyeinsighthealth.com/api}
     ports:
       - '3001:3001'
     depends_on:
